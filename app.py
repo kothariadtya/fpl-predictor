@@ -1,8 +1,9 @@
-# ✅ Streamlit FPL Team Predictor App with Injury Data
+# ✅ Streamlit FPL Team Predictor App with Injury & Sentiment Data
 import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+from newspaper import Article
 
 st.set_page_config(page_title="FPL Team Predictor", layout="wide")
 st.title("⚽ Fantasy Premier League - AI Team Picker")
@@ -46,16 +47,41 @@ def fetch_injuries():
             injury_data.append(player)
         except:
             continue
-
     return injury_data
+
+# --- Scrape news headlines for mentality sentiment ---
+def fetch_sentiment_players():
+    urls = [
+        "https://www.bbc.com/sport/football",
+        "https://www.theguardian.com/football",
+        "https://www.skysports.com/football/news"
+    ]
+    sentiment_dict = {}
+    for url in urls:
+        try:
+            article = Article(url)
+            article.download()
+            article.parse()
+            text = article.text.lower()
+            for name in players['web_name']:
+                if name.lower() in text:
+                    sentiment_dict[name] = "Volatile"
+        except:
+            continue
+    return sentiment_dict
 
 players = load_fpl_data()
 injured_players = fetch_injuries()
+sentiment_map = fetch_sentiment_players()
 
-# Flag injury risk
+# Flag injury and morale
 players['InjuryRisk'] = players['web_name'].apply(lambda name: name in injured_players)
 players['InjuryMultiplier'] = players['InjuryRisk'].apply(lambda x: 0.85 if x else 1.0)
-players['PredictedPoints'] *= players['InjuryMultiplier']
+players['Mentality'] = players['web_name'].apply(lambda x: sentiment_map.get(x, 'Stable'))
+players['MoraleMultiplier'] = players['Mentality'].apply(lambda x: 0.95 if x == 'Volatile' else 1.0)
+
+# Adjust predictions
+players['PredictedPoints'] *= players['InjuryMultiplier'] * players['MoraleMultiplier']
 
 # --- Filters ---
 st.sidebar.header("🔍 Filters")
@@ -73,7 +99,7 @@ if differential_only:
 # --- Display Results ---
 st.subheader("📋 Recommended Players")
 st.dataframe(filtered.sort_values("PredictedPoints", ascending=False)[[
-    "web_name", "Team", "Position", "Price", "Ownership", "InjuryRisk", "PredictedPoints", "PPM"
+    "web_name", "Team", "Position", "Price", "Ownership", "InjuryRisk", "Mentality", "PredictedPoints", "PPM"
 ]].rename(columns={
     "web_name": "Name", "Price": "Price (M)"
 }).reset_index(drop=True), use_container_width=True)
