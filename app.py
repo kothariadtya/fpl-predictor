@@ -61,7 +61,7 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
 
     def total_cost(rows): return sum(r["Price"] for r in rows)
     def can_add(rowd):
-        if team_counts.get(rowd["team"], 0) >= team_limit:
+        if team_counts.get(rowd["TeamShort"], 0) >= team_limit:
             return False
         if total_cost(squad_rows) + rowd["Price"] > budget:
             return False
@@ -74,7 +74,7 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
             rowd = r.to_dict()
             if can_add(rowd):
                 squad_rows.append(rowd)
-                team_counts[rowd["team"]] = team_counts.get(rowd["team"], 0) + 1
+                team_counts[rowd["TeamShort"]] = team_counts.get(rowd["TeamShort"], 0) + 1
                 picked += 1
                 if picked == need[p]:
                     break
@@ -90,7 +90,7 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
                     continue
                 if can_add(rowd):
                     squad_rows.append(rowd)
-                    team_counts[rowd["team"]] = team_counts.get(rowd["team"], 0) + 1
+                    team_counts[rowd["TeamShort"]] = team_counts.get(rowd["TeamShort"], 0) + 1
                     placed = True
                     break
             if not placed:
@@ -100,7 +100,7 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
                     break
                 worst = min(same_pos, key=lambda x: (x["PPM"], x["PredictedPoints"]))
                 squad_rows.remove(worst)
-                team_counts[worst["team"]] -= 1
+                team_counts[worst["TeamShort"]] -= 1
 
     # if still over budget, iteratively downgrade worst value picks
     iters = 0
@@ -108,7 +108,7 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
         iters += 1
         cand = max(squad_rows, key=lambda x: (x["Price"] / max(x["PredictedPoints"], 0.01)))
         pos = cand["Position"]
-        team_counts[cand["team"]] -= 1
+        team_counts[cand["Teamshort"]] -= 1
         squad_rows.remove(cand)
         pool = pos_sorted[pos].sort_values("Price", ascending=True)
         placed = False
@@ -116,16 +116,16 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
             rowd = r.to_dict()
             if any((x["web_name"] == rowd["web_name"]) for x in squad_rows):
                 continue
-            if team_counts.get(rowd["team"], 0) >= team_limit:
+            if team_counts.get(rowd["TeamShort"], 0) >= team_limit:
                 continue
             if total_cost(squad_rows) + rowd["Price"] <= budget:
                 squad_rows.append(rowd)
-                team_counts[rowd["team"]] = team_counts.get(rowd["team"], 0) + 1
+                team_counts[rowd["TeamShort"]] = team_counts.get(rowd["TeamShort"], 0) + 1
                 placed = True
                 break
         if not placed:
             squad_rows.append(cand)
-            team_counts[cand["team"]] = team_counts.get(cand["team"], 0) + 1
+            team_counts[cand["TeamShort"]] = team_counts.get(cand["TeamShort"], 0) + 1
             break
 
     return pd.DataFrame(squad_rows)
