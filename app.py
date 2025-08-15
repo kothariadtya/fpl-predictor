@@ -6,7 +6,6 @@ from bs4 import BeautifulSoup
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from data_loader import load_for_app
 import streamlit as st
-st.cache_data.clear()
 import pandas as pd
 
 players = load_for_app()
