@@ -276,7 +276,7 @@ if st.button("📋 Build My FPL Team"):
     st.subheader("🔝 Starting XI (best formation)")
     st.dataframe(xi_sorted[["web_name","Position","TeamShort","NextOpponent","Price","PredictedPoints","InjuryRisk","RotationRisk","Mentality"]].head(4),
                  use_container_width = True
-
+                )
     st.subheader("🛋 Bench (ordered strongest first)")
     st.dataframe(
         bench_table[["web_name","Position","TeamShort","NextOpponent","Price","PredictedPoints","InjuryRisk","RotationRisk","Mentality"]].head(4),
