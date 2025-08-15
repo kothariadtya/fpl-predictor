@@ -25,9 +25,10 @@ if st.sidebar.checkbox("Show only Differentials (<10%)"):
 top_n = st.sidebar.slider("Show top N players", 5, 60, 15)
 st.subheader(f"Top {top_n} FPL Player Picks")
 cols_to_show = [
-    "web_name","team","Position","Price","form","Ownership","Differential",
-    "PredictedPoints","InjuryRisk","Mentality","FixtureDifficulty","DoubleGW","PPM"
+    "web_name", "TeamShort", "Position", "Price", "form", "Ownership", "Differential",
+    "PredictedPoints", "FixtureDifficulty", "DoubleGW", "NextOpponent", "InjuryRisk", "RotationRisk", "Mentality", "PPM"
 ]
+
 st.dataframe(
     table_df.sort_values("PredictedPoints", ascending=False)[cols_to_show].head(top_n),
     use_container_width=True
@@ -47,8 +48,8 @@ def build_best_team(df_full: pd.DataFrame) -> pd.DataFrame:
     need = {"GK": 2, "DEF": 5, "MID": 5, "FWD": 3}
     team_limit = 3
 
-    cols = ["web_name","team","Position","Price","PredictedPoints","PPM",
-            "InjuryRisk","RotationRisk","Mentality","DoubleGW","FixtureDifficulty"]
+    cols = ["web_name", "TeamShort", "Position", "Price", "form", "Ownership", "Differential",
+    "PredictedPoints", "FixtureDifficulty", "DoubleGW", "NextOpponent", "InjuryRisk", "RotationRisk", "Mentality", "PPM"]
     df = df_full[cols].dropna(subset=["Price","PredictedPoints","PPM"]).copy()
 
     pos_sorted = {
