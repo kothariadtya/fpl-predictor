@@ -1,0 +1,30 @@
+# train_model.py  (run locally or in Colab)
+import pandas as pd
+import requests
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+import joblib
+
+# fetch data
+boot = requests.get("https://fantasy.premierleague.com/api/bootstrap-static/").json()
+df = pd.DataFrame(boot["elements"])
+
+# features you already use in app
+X = pd.DataFrame({
+    "form": pd.to_numeric(df["form"], errors="coerce").fillna(0),
+    "influence": pd.to_numeric(df["influence"], errors="coerce").fillna(0),
+    "ict_index": pd.to_numeric(df["ict_index"], errors="coerce").fillna(0),
+    "threat": pd.to_numeric(df["threat"], errors="coerce").fillna(0),
+    "creativity": pd.to_numeric(df["creativity"], errors="coerce").fillna(0),
+    "minutes": df["minutes"].fillna(0),
+    "now_cost": df["now_cost"].fillna(0),
+})
+y = pd.to_numeric(df["points_per_game"], errors="coerce").fillna(0)
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+model = RandomForestRegressor(n_estimators=300, random_state=42)
+model.fit(X_train, y_train)
+
+print("Baseline R^2:", model.score(X_test, y_test))
+joblib.dump(model, "fpl_model.pkl")
+print("Saved fpl_model.pkl")
