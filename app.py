@@ -1,13 +1,13 @@
 import random
 import time
 from typing import Dict, Set, List, Tuple
-
-import streamlit as st
-import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from data_loader import load_for_app
+import streamlit as st
+st.cache_data.clear()
+import pandas as pd
 
 players = load_for_app()
 players_full = players.copy()
