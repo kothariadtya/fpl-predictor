@@ -1,5 +1,2 @@
 [server]
-fileWatcherType = "none"   # "poll" if you want auto-reload locally
-headless = true
-enableXsrfProtection = true
-enableWebsocketCompression = true
+fileWatcherType = "none"
