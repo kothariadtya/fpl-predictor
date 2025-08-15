@@ -19,6 +19,44 @@ import requests
 from bs4 import BeautifulSoup
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+def build_next_opponent_maps(fixtures_df: pd.DataFrame) -> Tuple[Dict[int, int], Dict[int, str], Dict[int, int]]:
+    """
+    For each team_id, find the next gameweek (min event) and the opponent team_id.
+    Returns:
+      team_next_opp: {team_id -> opponent_team_id}
+      team_home_away: {team_id -> 'H' or 'A'}
+      team_next_gw: {team_id -> event_number}
+    """
+    team_next_opp: Dict[int, int] = {}
+    team_home_away: Dict[int, str] = {}
+    team_next_gw: Dict[int, int] = {}
+
+    fx = fixtures_df.dropna(subset=["event"]).copy()
+    if fx.empty:
+        return team_next_opp, team_home_away, team_next_gw
+
+    # For each team, choose the earliest upcoming event (next GW)
+    teams_in_fixtures = pd.unique(pd.concat([fx["team_h"], fx["team_a"]], ignore_index=True))
+    for t in teams_in_fixtures:
+        t_fixt = fx[(fx["team_h"] == t) | (fx["team_a"] == t)]
+        if t_fixt.empty:
+            continue
+        next_gw = int(t_fixt["event"].min())
+        gw_rows = t_fixt[t_fixt["event"] == next_gw].sort_index()
+        # If DGW, just take the first listing; your DoubleGWFactor still captures the bonus
+        row = gw_rows.iloc[0]
+        if int(row["team_h"]) == int(t):
+            opp = int(row["team_a"]); ha = "H"
+        else:
+            opp = int(row["team_h"]); ha = "A"
+        team_next_opp[int(t)] = opp
+        team_home_away[int(t)] = ha
+        team_next_gw[int(t)] = next_gw
+
+    return team_next_opp, team_home_away, team_next_gw
+
+
+
 # -------- polite networking --------
 USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36",
@@ -182,9 +220,26 @@ def preseason_boost_from_news(names: List[str]) -> Dict[str,float]:
 def load_players_df(apply_preseason_if_gw_le5: bool = True) -> pd.DataFrame:
     elements, teams, fixtures_df = load_fpl_raw()
     next_diff_map, dgw_teams = team_fixture_difficulty_and_dgw(elements, fixtures_df)
+# Build next-opponent maps
+    team_next_opp, team_home_away, team_next_gw = build_next_opponent_maps(fixtures_df)
 
     df = elements.merge(teams[["id","name","short_name","strength"]],
                         left_on="team", right_on="id", suffixes=("", "_team"))
+# Map readable opponent + H/A
+# opponent short_name requires a map from team_id -> short_name
+team_id_to_short = dict(zip(teams["id"], teams["short_name"]))
+
+df["TeamShort"] = df["short_name"]          # your club short name
+df["NextGW"]    = df["team"].map(team_next_gw).fillna(-1).astype(int)
+df["HomeAway"]  = df["team"].map(team_home_away).fillna("")
+df["OppTeamId"] = df["team"].map(team_next_opp).fillna(-1).astype(int)
+df["OppTeam"]   = df["OppTeamId"].map(team_id_to_short).fillna("")
+
+# A compact “Next” column like: "BHA (H)" or "MCI (A)"
+df["NextOpponent"] = df.apply(
+    lambda r: f"{r['OppTeam']} ({r['HomeAway']})" if r["OppTeam"] else "",
+    axis=1
+)
 
     # basics
     df["Price"] = df["now_cost"] / 10.0
