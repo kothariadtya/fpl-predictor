@@ -274,11 +274,12 @@ if st.button("📋 Build My FPL Team"):
     chips = recommend_chips(xi_sorted, bench_table)
 
     st.subheader("🔝 Starting XI (best formation)")
-    st.dataframe(xi_sorted[["web_name","Position","team","Price","PredictedPoints","Role"]], use_container_width=True)
+    st.dataframe(xi_sorted[["web_name","Position","TeamShort","NextOpponent","Price","PredictedPoints","InjuryRisk","RotationRisk","Mentality"]].head(4),
+                 use_container_width = True
 
     st.subheader("🛋 Bench (ordered strongest first)")
     st.dataframe(
-        bench_table[["web_name","Position","team","Price","PredictedPoints","InjuryRisk","RotationRisk","Mentality"]].head(4),
+        bench_table[["web_name","Position","TeamShort","NextOpponent","Price","PredictedPoints","InjuryRisk","RotationRisk","Mentality"]].head(4),
         use_container_width=True
     )
 
