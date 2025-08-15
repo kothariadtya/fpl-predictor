@@ -16,7 +16,7 @@ players_full = players.copy()
 # Streamlit setup
 # --------------------------------------------------------------------------------------
 st.set_page_config(layout="wide", page_title="FPL Team Predictor")
-st.title("⚽ Fantasy Premier League – AI Team Predictor (Personal)")
+st.title("BLRush Predictor Run")
 
 # --------------------------------------------------------------------------------------
 # Polite networking helpers (avoid blocks)
