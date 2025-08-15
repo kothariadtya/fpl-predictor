@@ -7,6 +7,10 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from data_loader import load_for_app
+
+players = load_for_app()
+players_full = players.copy()
 
 # --------------------------------------------------------------------------------------
 # Streamlit setup
@@ -271,6 +275,25 @@ def load_players_df() -> pd.DataFrame:
     if gw is not None and gw <= 5:
         preseason_map = preseason_boost_from_news(names_list)
         df["PreSeasonFactor"] = df["web_name"].apply(lambda n: preseason_map.get(n, 1.0))
+# OPTIONAL: blend a learned model if available
+try:
+    import joblib
+    model = joblib.load("fpl_model.pkl")
+    feats = pd.DataFrame({
+        "form": pd.to_numeric(players["form"], errors="coerce").fillna(0),
+        "influence": pd.to_numeric(players["influence"], errors="coerce").fillna(0),
+        "ict_index": pd.to_numeric(players["ict_index"], errors="coerce").fillna(0),
+        "threat": pd.to_numeric(players["threat"], errors="coerce").fillna(0),
+        "creativity": pd.to_numeric(players["creativity"], errors="coerce").fillna(0),
+        "minutes": players["minutes"].fillna(0),
+        "now_cost": players["now_cost"].fillna(0),
+    })
+    ml_points = model.predict(feats)
+    # blend: 60% rule-based, 40% model (tune as you like)
+    players["PredictedPoints"] = 0.6 * players["PredictedPoints"] + 0.4 * ml_points
+except Exception as e:
+    # model not present or failed → ignore and keep rule-based score
+    pass
 
     # predicted points
     df["form"] = pd.to_numeric(df["form"], errors="coerce").fillna(0.0)
