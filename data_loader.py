@@ -4,14 +4,16 @@
 # - Fixture Difficulty + Double GW
 # - Injuries (Premier Injuries scrape)
 # - Mentality from article snippets (BBC/Guardian/Sky) via VADER
-# - Pre-season boost for GW <= 5
+# - **Pre-season boost for GW <= 5** (friendlies/news)
 # - Fatigue, chemistry, rotation
-# - Final PredictedPoints & PPM
+# - Robust PredictedPoints (handles GW1 zeros) + PPM
+
 from __future__ import annotations
 import random
 import time
 from typing import Dict, Set, List, Tuple
 
+import numpy as np
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
@@ -25,6 +27,7 @@ USER_AGENTS = [
 ]
 
 def safe_get(url: str, timeout: int = 10, retries: int = 3, sleep_base: float = 1.0):
+    """GET with random UA, backoff, and graceful failure."""
     for i in range(retries):
         try:
             r = requests.get(url, headers={"User-Agent": random.choice(USER_AGENTS)}, timeout=timeout)
@@ -41,7 +44,7 @@ def load_fpl_raw() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     r_boot = safe_get(f"{base}/bootstrap-static/")
     r_fix  = safe_get(f"{base}/fixtures/")
     if r_boot is None or r_fix is None:
-        raise RuntimeError("Failed to fetch FPL API.")
+        raise RuntimeError("Failed to fetch FPL API. Try again in a minute.")
     boot = r_boot.json()
     elements = pd.DataFrame(boot["elements"])
     teams    = pd.DataFrame(boot["teams"])
@@ -55,6 +58,7 @@ def current_gameweek(fixtures_df: pd.DataFrame) -> int | None:
 
 def team_fixture_difficulty_and_dgw(elements: pd.DataFrame,
                                     fixtures_df: pd.DataFrame) -> Tuple[Dict[int,int], Set[int]]:
+    """Return per-player next fixture difficulty (1..5) and set of team_ids with DGW in any event."""
     next_diff: Dict[int,int] = {}
     dgw_teams: Set[int] = set()
 
@@ -139,6 +143,12 @@ def player_mentality_from_news(names: List[str], max_links_per_site: int = 10) -
 
 # -------- pre-season (GW <= 5) --------
 def preseason_boost_from_news(names: List[str]) -> Dict[str,float]:
+    """
+    Friendlies/pre-season proxy from news:
+      - If article mentions 'pre-season'/'preseason'/'friendly' + player name
+        and sentiment is positive → boost 1.10
+        and negative → 0.90
+    """
     sia = analyzer()
     boost = {n: 1.0 for n in names}
     for site in NEWS_SITES:
@@ -172,25 +182,31 @@ def preseason_boost_from_news(names: List[str]) -> Dict[str,float]:
 def load_players_df(apply_preseason_if_gw_le5: bool = True) -> pd.DataFrame:
     elements, teams, fixtures_df = load_fpl_raw()
     next_diff_map, dgw_teams = team_fixture_difficulty_and_dgw(elements, fixtures_df)
+
     df = elements.merge(teams[["id","name","short_name","strength"]],
                         left_on="team", right_on="id", suffixes=("", "_team"))
 
+    # basics
     df["Price"] = df["now_cost"] / 10.0
     df["Ownership"] = pd.to_numeric(df["selected_by_percent"], errors="coerce").fillna(0.0)
     df["Differential"] = df["Ownership"] < 10.0
     df["FixtureDifficulty"] = df["id"].map(next_diff_map).fillna(3).astype(int)
     df["DoubleGW"] = df["team"].apply(lambda t: t in dgw_teams)
 
+    # injuries
     injured = fetch_injured_players()
     df["InjuryRisk"] = df["web_name"].str.lower().apply(lambda n: "Yes" if n in injured else "No")
 
+    # mentality
     names = df["web_name"].tolist()
     mentality_map = player_mentality_from_news(names)
     df["Mentality"] = df["web_name"].apply(lambda n: mentality_map.get(n, "Stable"))
 
+    # rotation risk
     df["chance_of_playing_next_round"] = pd.to_numeric(df["chance_of_playing_next_round"], errors="coerce").fillna(100)
     df["RotationRisk"] = ((df["minutes"] < 90) | (df["chance_of_playing_next_round"] < 75)).map({True:"Yes", False:"No"})
 
+    # multipliers
     df["FatigueFactor"]   = df["minutes"].apply(lambda m: 0.95 if m > 270 else 1.0)
     df["ChemistryFactor"] = pd.to_numeric(df["influence"], errors="coerce").fillna(0.0).apply(lambda x: 1.0 if x > 300 else 0.95)
     df["InjuryFactor"]    = df["InjuryRisk"].map({"Yes":0.85, "No":1.0})
@@ -199,21 +215,47 @@ def load_players_df(apply_preseason_if_gw_le5: bool = True) -> pd.DataFrame:
     df["FixtureFactor"]   = df["FixtureDifficulty"].apply(lambda x: 1.05 if x <= 2 else (0.95 if x >= 4 else 1.0))
     df["DoubleGWFactor"]  = df["DoubleGW"].map({True:1.15, False:1.0})
 
+    # ---------- Robust scoring (handles GW1 zeros) ----------
+    df["form_num"] = pd.to_numeric(df["form"], errors="coerce").fillna(0.0)
+    df["ppg"]      = pd.to_numeric(df.get("points_per_game", 0), errors="coerce").fillna(0.0)
+    df["ict_num"]  = pd.to_numeric(df.get("ict_index", 0), errors="coerce").fillna(0.0)
+
+    # Fallback when form==0 (common in GW1): 70% last-season PPG + 30% scaled ICT
+    fallback_form = 0.7 * df["ppg"] + 0.3 * (df["ict_num"] / 10.0)
+
+    # Pre-season factor (multiplier) + additive nudge in GW <= 5
     gw = current_gameweek(fixtures_df)
     df["PreSeasonFactor"] = 1.0
+    preseason_add = 0.0
     if gw is not None and gw <= 5 and apply_preseason_if_gw_le5:
-        pre = preseason_boost_from_news(names)
+        pre = preseason_boost_from_news(names)  # 0.90 / 1.0 / 1.10
         df["PreSeasonFactor"] = df["web_name"].apply(lambda n: pre.get(n, 1.0))
+        # Convert positive pre-season signal into a small additive bump so 0.0 form doesn't zero it out
+        preseason_add = 0.5  # +0.5 pts if positive signal
 
-    df["form"] = pd.to_numeric(df["form"], errors="coerce").fillna(0.0)
+    # BaseForm: if FPL form available use it; otherwise use fallback; then add small preseason nudge when boosted
+    df["BaseForm"] = np.where(df["form_num"] > 0, df["form_num"], fallback_form)
+    df["BaseForm"] = df["BaseForm"] + np.where(df["PreSeasonFactor"] > 1.0, preseason_add, 0.0)
+    # If negative preseason (0.90), add a tiny negative nudge to dampen hype
+    df["BaseForm"] = df["BaseForm"] - np.where(df["PreSeasonFactor"] < 1.0, 0.3, 0.0)
+
+    # Final PredictedPoints: multiplicative factors * BaseForm
     df["PredictedPoints"] = (
-        df["form"]
-        * df["FatigueFactor"] * df["ChemistryFactor"] * df["InjuryFactor"]
-        * df["MentalityFactor"] * df["RotationFactor"] * df["FixtureFactor"]
-        * df["DoubleGWFactor"] * df["PreSeasonFactor"]
+        df["BaseForm"]
+        * df["FatigueFactor"]
+        * df["ChemistryFactor"]
+        * df["InjuryFactor"]
+        * df["MentalityFactor"]
+        * df["RotationFactor"]
+        * df["FixtureFactor"]
+        * df["DoubleGWFactor"]
+        * df["PreSeasonFactor"]
     )
-    df["PPM"] = (df["PredictedPoints"] / df["Price"]).replace([pd.NA, float("inf")], 0)
 
+    # Value metric: guard against zero price
+    df["PPM"] = np.where(df["Price"] > 0, df["PredictedPoints"] / df["Price"], 0.0)
+
+    # positions
     df["Position"] = df["element_type"].map({1:"GK", 2:"DEF", 3:"MID", 4:"FWD"})
     return df
 
